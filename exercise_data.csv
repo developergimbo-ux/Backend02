@@ -1,0 +1,31 @@
+exercise_id,name,type,equipment,equipment_db_key,muscle,difficulty,sets,reps,duration_min,calories_burned_per_set,rest_sec,notes,goal_tags,body_part_tag,firebase_equipment_category,min_equipment_required,recommended_for_member_category,firebase_fetch_key
+EC001,Jump Rope,cardio,jump rope,jump_rope,full body,beginner,,,5-15,110,30,High intensity bursts; great calorie burner; alternate fast and slow intervals,fat_loss;endurance,full,cardio,jump rope,cardio,equipment/jump_rope
+EC002,Jump Rope - Double Unders,cardio,jump rope,jump_rope,full body,intermediate,,,3-10,130,30,Rope passes twice per jump; advanced skipping variation,fat_loss;endurance,full,cardio,jump rope,cardio,equipment/jump_rope
+EC003,Gym Ball Squat Hold,cardio,gym ball,gym_ball,legs;core,beginner,3.0,30 sec,5-10,50,30,Ball against wall; hold squat; activates legs and core,fat_loss;maintenance,lower,cardio,gym ball,cardio,equipment/gym_ball
+EC004,Gym Ball Burpee,cardio,gym ball,gym_ball,full body,intermediate,3.0,10-15,5-10,90,45,Perform burpee with hands on gym ball for instability challenge,fat_loss;endurance,full,cardio,gym ball,cardio,equipment/gym_ball
+EC005,Gym Ball Mountain Climber,cardio,gym ball,gym_ball,core;shoulders;legs,intermediate,3.0,20 each leg,5-10,80,30,Hands on gym ball; drive knees to chest alternately; engages core heavily,fat_loss;core_strength,core,cardio,gym ball,cardio,equipment/gym_ball
+EC006,Gym Ball Pass Crunch,cardio,gym ball,gym_ball,core;abs,beginner,3.0,15-20,5-10,55,30,Pass ball between hands and feet while crunching; elevates heart rate,fat_loss;core_strength,core,cardio,gym ball,cardio,equipment/gym_ball
+EC007,Yoga Mat High Knees,cardio,yoga mat,yoga_mat,legs;core,beginner,3.0,30 sec,5-10,60,20,Run in place driving knees high; keep core tight,fat_loss;maintenance;endurance,lower,cardio,yoga mat,cardio,equipment/yoga_mat
+EC008,Yoga Mat Burpees,cardio,yoga mat,yoga_mat,full body,intermediate,3.0,10-15,5-15,95,45,"Full burpee on mat; squat down, jump back to plank, push-up, jump up",fat_loss;endurance,full,cardio,yoga mat,cardio,equipment/yoga_mat
+EC009,Yoga Mat Bear Crawl,cardio,yoga mat,yoga_mat,full body;core,beginner,3.0,30 sec,5-10,55,30,Crawl forward and back on mat; keep hips low; great warm-up cardio,fat_loss;maintenance,full,cardio,yoga mat,cardio,equipment/yoga_mat
+EC010,Bodyweight Jumping Jacks,cardio,bodyweight,bodyweight,full body,beginner,3.0,40-50,5-10,50,20,Classic warm-up cardio; great for all fitness levels,fat_loss;maintenance;endurance,full,cardio,none,cardio,equipment/bodyweight
+EC011,Bodyweight Burpees,cardio,bodyweight,bodyweight,full body,intermediate,3.0,10-15,5-15,95,45,No equipment needed; explosive full body cardio,fat_loss;endurance,full,cardio,none,cardio,equipment/bodyweight
+EC012,Bodyweight Mountain Climbers,cardio,bodyweight,bodyweight,core;legs;shoulders,beginner,3.0,20 each leg,5-10,70,30,Drive knees to chest alternately in plank position; great core cardio,fat_loss;core_strength;endurance,core,cardio,none,cardio,equipment/bodyweight
+EC013,Bodyweight Squat Jumps,cardio,bodyweight,bodyweight,legs;glutes;core,intermediate,3.0,12-15,5-10,85,45,Squat down then explode upward; land softly; great power cardio,fat_loss;muscle_gain;endurance,lower,cardio,none,cardio,equipment/bodyweight
+EC014,Bodyweight Box Step-Ups,cardio,bodyweight,bodyweight,legs;glutes,beginner,3.0,15 each leg,5-10,65,30,Use any step or platform; alternate legs; great low-impact cardio,fat_loss;maintenance,lower,cardio,none,cardio,equipment/bodyweight
+EC015,Jump Rope - Alternate Foot,cardio,jump rope,jump_rope,legs;calves;core,beginner,,,5-10,100,30,Alternate feet while skipping; good for coordination and stamina,fat_loss;endurance;maintenance,lower,cardio,jump rope,cardio,equipment/jump_rope
+E006,Push Ups,strength,bodyweight,bodyweight,chest,beginner,3.0,10-15,,8,60,keep body straight; elbows at 45 degrees,fat_loss;muscle_gain;maintenance,upper,,,,
+E007,Bodyweight Squats,strength,bodyweight,bodyweight,legs,beginner,3.0,12-15,,7,60,controlled motion; full depth preferred,fat_loss;muscle_gain;maintenance,lower,,,,
+E008,Plank,strength,bodyweight,bodyweight,core,beginner,3.0,30-60 sec,,5,45,keep core tight; breathe steadily,fat_loss;maintenance,core,,,,
+E009,Dumbbell Curl,strength,dumbbell,dumbbell,biceps,beginner,3.0,10-12,,9,60,avoid swinging; slow eccentric,muscle_gain;maintenance,upper,,,,
+E010,Dumbbell Shoulder Press,strength,dumbbell,dumbbell,shoulders,intermediate,3.0,8-10,,11,75,full range of motion; seated or standing,muscle_gain;maintenance,upper,,,,
+E011,Dumbbell Lunges,strength,dumbbell,dumbbell,legs,intermediate,3.0,10-12 each,,10,60,balance and control; step forward evenly,muscle_gain;fat_loss,lower,,,,
+E012,Barbell Bench Press,strength,barbell,barbell,chest,intermediate,4.0,6-10,,14,90,spotter recommended; retract scapula,muscle_gain,upper,,,,
+E013,Barbell Squat,strength,barbell,barbell,legs,intermediate,4.0,6-10,,15,90,maintain posture; bar on traps,muscle_gain,lower,,,,
+E014,Deadlift,strength,barbell,barbell,back,advanced,4.0,5-8,,16,120,keep spine neutral; hip hinge pattern,muscle_gain,full,,,,
+E015,Leg Press,strength,leg press,leg press,legs,beginner,3.0,10-12,,12,75,controlled reps; do not lock knees,muscle_gain;fat_loss,lower,,,,
+E016,Chest Press Machine,strength,chest press,chest press,chest,beginner,3.0,10-12,,10,60,adjust seat height; push evenly,muscle_gain;fat_loss,upper,,,,
+E017,Lat Pulldown,strength,lat pulldown,lat pulldown,back,beginner,3.0,10-12,,10,60,avoid jerking; pull to upper chest,muscle_gain;maintenance,upper,,,,
+E018,Cable Row,strength,cable machine,cable machine,back,intermediate,3.0,10-12,,11,60,squeeze back at peak; elbows close,muscle_gain;maintenance,upper,,,,
+E019,Shoulder Press Machine,strength,shoulder press,shoulder press,shoulders,beginner,3.0,10-12,,9,60,controlled movement; no momentum,muscle_gain;maintenance,upper,,,,
+E020,Tricep Pushdown,strength,cable machine,cable machine,triceps,beginner,3.0,10-12,,8,60,elbows fixed; full extension at bottom,muscle_gain;maintenance,upper,,,,
