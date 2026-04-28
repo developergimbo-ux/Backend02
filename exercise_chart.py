@@ -152,6 +152,10 @@ class ExercisePlanRequest(BaseModel):
             "Cardio and bodyweight are always included."
         ),
     )
+    exercise_type:       Optional[str]   = Field(
+        default=None,
+        description="'cardio' | 'strength' | None (None = both cardio+strength). Priority over goal.",
+    )
     power_id:            Optional[str]   = ""
     phone:               Optional[str]   = ""
 
@@ -207,17 +211,56 @@ def filter_exercises(
     exercise_type: Optional[str] = None,
     muscle:        Optional[str] = None,
 ) -> pd.DataFrame:
+    """
+    Priority: exercise_type > goal > equipment
+
+    exercise_type == "cardio"   → only cardio rows (equipment irrelevant)
+    exercise_type == "strength" → only strength rows that match available_equipment;
+                                  bodyweight used as fallback when no equipment match
+    exercise_type == None       → cardio + strength (combined); strength filtered by equipment
+    """
     require_data()
 
-    norm_equip    = {e.lower().strip() for e in available_equipment}
+    norm_equip = {e.lower().strip() for e in available_equipment}
+    et = (exercise_type or "").lower().strip()
+
     is_bodyweight = ex_df["equipment_db_key"].isin(ALWAYS_ALLOWED_EQUIPMENT)
-    is_cardio     = ex_df["type"] == "cardio"
     is_equipped   = ex_df["equipment_db_key"].isin(norm_equip)
 
-    result = ex_df[is_bodyweight | is_cardio | is_equipped].copy()
+    if et == "cardio":
+        # Cardio also respects equipment — only cardio exercises whose equipment is
+        # available (or bodyweight/no-equipment cardio)
+        is_cardio = ex_df["type"] == "cardio"
+        if norm_equip:
+            result = ex_df[is_cardio & (is_bodyweight | is_equipped)].copy()
+            if result.empty:
+                # fallback: bodyweight cardio only
+                result = ex_df[is_cardio & is_bodyweight].copy()
+        else:
+            result = ex_df[is_cardio & is_bodyweight].copy()
 
-    if exercise_type:
-        result = result[result["type"] == exercise_type.lower()]
+    elif et == "strength":
+        # Strength must match available equipment; bodyweight-only fallback
+        is_strength = ex_df["type"] == "strength"
+        matched = ex_df[is_strength & is_equipped].copy()
+        if matched.empty:
+            result = ex_df[is_strength & is_bodyweight].copy()
+        else:
+            bw_strength = ex_df[is_strength & is_bodyweight]
+            result = pd.concat([matched, bw_strength]).drop_duplicates("exercise_id")
+
+    else:
+        # Combined — cardio filtered by equipment, strength filtered by equipment
+        is_cardio   = ex_df["type"] == "cardio"
+        is_strength = ex_df["type"] == "strength"
+        if norm_equip:
+            cardio_pool   = ex_df[is_cardio   & (is_bodyweight | is_equipped)]
+            strength_pool = ex_df[is_strength & (is_bodyweight | is_equipped)]
+        else:
+            cardio_pool   = ex_df[is_cardio   & is_bodyweight]
+            strength_pool = ex_df[is_strength & is_bodyweight]
+        result = pd.concat([cardio_pool, strength_pool]).drop_duplicates("exercise_id").copy()
+
     if goal:
         g = goal.lower()
         result = result[result["goal_tags"].apply(lambda gt: g in gt or "all" in gt)]
@@ -251,10 +294,16 @@ def _row_to_dict(r: pd.Series) -> dict:
 
 def build_exercise_catalogue(
     available_equipment: list[str],
-    goal:       str,
-    experience: str,
+    goal:          str,
+    experience:    str,
+    exercise_type: Optional[str] = None,
 ) -> dict:
-    df_filtered = filter_exercises(available_equipment, goal=goal, experience=experience)
+    df_filtered = filter_exercises(
+        available_equipment,
+        goal=goal,
+        experience=experience,
+        exercise_type=exercise_type,
+    )
 
     cardio_df   = df_filtered[df_filtered["type"] == "cardio"]
     strength_df = df_filtered[df_filtered["type"] == "strength"]
@@ -263,9 +312,10 @@ def build_exercise_catalogue(
     strength_list = [_row_to_dict(pd.Series(r._asdict())) for r in strength_df.itertuples(index=False)]
 
     return {
-        "cardio":   cardio_list,
-        "strength": strength_list,
-        "total":    len(df_filtered),
+        "cardio":        cardio_list,
+        "strength":      strength_list,
+        "exercise_type": exercise_type,   # propagate so generate_plan can use it
+        "total":         len(df_filtered),
     }
 
 
@@ -273,23 +323,30 @@ def build_exercise_catalogue(
 def _score_exercise(ex: dict, goal: str, experience: str, focus_muscles: list[str]) -> float:
     score = 1.0
 
-    # Goal alignment
-    if goal in (ex.get("goal_tags") or []):
-        score += 2.0
-    elif "all" in (ex.get("goal_tags") or []):
+    # Goal alignment — dominates selection
+    goal_tags = ex.get("goal_tags") or []
+    if goal in goal_tags:
+        score += 3.0
+    elif "all" in goal_tags:
         score += 0.5
+    else:
+        score -= 0.5  # penalise exercises not matching this goal
 
-    # Muscle focus alignment
+    # Muscle focus — exact match preferred, partial match secondary
     ex_muscle = (ex.get("muscle") or "").lower()
-    for m in focus_muscles:
-        if m and m in ex_muscle:
-            score += 1.5
-            break
+    exact_match = any(m == ex_muscle for m in focus_muscles if m and m != "rest")
+    partial_match = (not exact_match) and any(m and m in ex_muscle for m in focus_muscles if m != "rest")
+    if exact_match:
+        score += 2.5
+    elif partial_match:
+        score += 1.0
 
-    # Difficulty preference: advanced users get bonus for harder exercises
-    diff_bonus = {"beginner": {"beginner": 1.0, "intermediate": 0.3, "advanced": 0.0},
-                  "intermediate": {"beginner": 0.5, "intermediate": 1.0, "advanced": 0.5},
-                  "advanced": {"beginner": 0.2, "intermediate": 0.7, "advanced": 1.2}}
+    # Difficulty preference
+    diff_bonus = {
+        "beginner":     {"beginner": 1.0, "intermediate": 0.3, "advanced": 0.0},
+        "intermediate": {"beginner": 0.5, "intermediate": 1.0, "advanced": 0.5},
+        "advanced":     {"beginner": 0.2, "intermediate": 0.7, "advanced": 1.2},
+    }
     ex_diff = (ex.get("difficulty") or "beginner").lower()
     score += diff_bonus.get(experience, {}).get(ex_diff, 0.5)
 
@@ -316,6 +373,10 @@ def _day_focus_muscles(split: str, day_index: int) -> list[str]:
     return [m.strip().lower() for m in focus_str.split(",")]
 
 
+# Day-type for combined mode cycling
+_COMBINED_DAY_CYCLE = ["cardio", "strength", "mixed", "cardio", "strength", "mixed", "rest"]
+
+
 def _pick_exercises(
     catalogue: dict,
     goal: str,
@@ -324,13 +385,62 @@ def _pick_exercises(
     target: int,
     injuries: str,
     used_names: set,
+    day_type: Optional[str] = None,   # "cardio" | "strength" | "mixed" | None
 ) -> list[dict]:
+    """
+    day_type controls which pool to draw from:
+      "cardio"   → only cardio pool
+      "strength" → only strength pool
+      "mixed"    → both pools, interleaved
+      None       → respects GOAL_PRIORITY (legacy behaviour)
+    """
     injury_keywords = [w.strip().lower() for w in (injuries or "").split(",") if w.strip()]
 
-    goal_types = GOAL_PRIORITY.get(goal, ["strength", "cardio"])
-    pool: list[dict] = []
-    for t in goal_types:
-        pool.extend(catalogue.get(t, []))
+    if day_type == "cardio":
+        pool = list(catalogue.get("cardio", []))
+    elif day_type == "strength":
+        pool = list(catalogue.get("strength", []))
+    elif day_type == "mixed":
+        # 50/50 split: score + pick strength and cardio independently then combine
+        s_pool = list(catalogue.get("strength", []))
+        c_pool = list(catalogue.get("cardio", []))
+        s_count = target // 2
+        c_count = target - s_count
+
+        def _score_pool(p: list) -> list:
+            scored_p = [(e, _score_exercise(e, goal, experience, focus_muscles)) for e in p]
+            scored_p = [(e, sc * (0.3 if e["name"] in used_names else 1.0)) for e, sc in scored_p]
+            scored_p.sort(key=lambda x: x[1] + random.uniform(0, 0.15), reverse=True)
+            return [e for e, _ in scored_p]
+
+        s_sorted = _score_pool(s_pool)
+        c_sorted = _score_pool(c_pool)
+
+        seen_mix: set = set()
+        picked_s, picked_c = [], []
+        for e in s_sorted:
+            if len(picked_s) >= s_count: break
+            if e["name"] not in seen_mix:
+                picked_s.append(e); seen_mix.add(e["name"])
+        for e in c_sorted:
+            if len(picked_c) >= c_count: break
+            if e["name"] not in seen_mix:
+                picked_c.append(e); seen_mix.add(e["name"])
+
+        # interleave: strength, cardio, strength, cardio …
+        pool = []
+        for pair in zip(picked_s, picked_c):
+            pool.extend(pair)
+        pool.extend(picked_s[len(picked_c):])
+        pool.extend(picked_c[len(picked_s):])
+        # return early — already selected
+        used_names.update(e["name"] for e in pool)
+        return pool
+    else:
+        goal_types = GOAL_PRIORITY.get(goal, ["strength", "cardio"])
+        pool = []
+        for t in goal_types:
+            pool.extend(catalogue.get(t, []))
 
     # Filter injured muscles
     if injury_keywords:
@@ -339,20 +449,23 @@ def _pick_exercises(
             if not any(kw in (e.get("muscle") or "").lower() for kw in injury_keywords)
         ]
 
-    # Score each exercise
+    # Score — goal + exact muscle match dominate
     scored = [(e, _score_exercise(e, goal, experience, focus_muscles)) for e in pool]
 
-    # Soft variety: penalise recently used
+    # Penalise recently used
     scored = [(e, s * (0.3 if e["name"] in used_names else 1.0)) for e, s in scored]
 
-    # Sort descending, add slight shuffle within top-tier to prevent identical plans
-    scored.sort(key=lambda x: x[1] + random.uniform(0, 0.2), reverse=True)
+    # Sort descending with small shuffle to prevent identical consecutive plans
+    scored.sort(key=lambda x: x[1] + random.uniform(0, 0.15), reverse=True)
 
     selected = []
+    seen: set = set()
     for ex, _ in scored:
         if len(selected) >= target:
             break
-        selected.append(ex)
+        if ex["name"] not in seen:
+            selected.append(ex)
+            seen.add(ex["name"])
 
     return selected
 
@@ -370,28 +483,53 @@ def _format_exercise(ex: dict) -> dict:
 # ─── PLAN GENERATOR ───────────────────────────────────────────────────────────
 def generate_plan(req: ExercisePlanRequest, catalogue: dict) -> dict:
     vol_min, vol_max = volume_range(req.gym_hours)
-    target   = (vol_min + vol_max) // 2
-    split    = _resolve_split(req)
+    target    = (vol_min + vol_max) // 2
+    split     = _resolve_split(req)
+    et        = (req.exercise_type or "").lower().strip()   # "cardio" | "strength" | ""
+    is_combined = not et  # no exercise_type = combined mode
 
-    schedule  = []
+    schedule   = []
     used_names: set = set()
+    active_day_count = 0  # counts only gym days for cycle indexing
 
     for i, (day, short) in enumerate(zip(DAYS, DAYS_SHORT)):
         is_active = i < req.gym_days
         focus_muscles = _day_focus_muscles(split, i)
-        focus_label   = " & ".join(m.title() for m in focus_muscles if m != "rest")
 
         if is_active:
+            # Determine day_type:
+            # - cardio only → always "cardio"
+            # - strength only → always "strength"
+            # - combined → cycle: cardio / strength / mixed
+            if et == "cardio":
+                day_type    = "cardio"
+                focus_label = "Cardio"
+            elif et == "strength":
+                day_type    = "strength"
+                focus_label = " & ".join(m.title() for m in focus_muscles if m not in ("rest",))
+            else:
+                # Combined: cycle through cardio → strength → mixed
+                cycle_pos   = active_day_count % 3
+                day_type    = ["cardio", "strength", "mixed"][cycle_pos]
+                focus_label = {
+                    "cardio":   "Cardio",
+                    "strength": " & ".join(m.title() for m in focus_muscles if m not in ("rest",)),
+                    "mixed":    "Cardio + Strength",
+                }[day_type]
+
             exercises = _pick_exercises(
                 catalogue, req.goal, req.experience,
-                focus_muscles, target, req.injuries or "", used_names,
+                focus_muscles, target, req.injuries or "",
+                used_names, day_type=day_type,
             )
             used_names.update(e["name"] for e in exercises)
+            active_day_count += 1
 
             schedule.append({
                 "day":       day,
                 "day_short": short,
                 "focus":     focus_label or req.goal.replace("_", " ").title(),
+                "day_type":  day_type,
                 "is_rest":   False,
                 "exercises": [_format_exercise(e) for e in exercises],
             })
@@ -400,6 +538,7 @@ def generate_plan(req: ExercisePlanRequest, catalogue: dict) -> dict:
                 "day":       day,
                 "day_short": short,
                 "focus":     "Rest & Recovery",
+                "day_type":  "rest",
                 "is_rest":   True,
                 "exercises": [],
             })
@@ -409,6 +548,7 @@ def generate_plan(req: ExercisePlanRequest, catalogue: dict) -> dict:
 
     return {
         "split_type":            split,
+        "exercise_mode":         et if et else "combined",
         "weekly_volume_sets":    int(avg_ex * active_days),
         "session_duration_mins": int(req.gym_hours * 60),
         "schedule":              schedule,
@@ -479,10 +619,10 @@ def generate_exercise_plan(req: ExercisePlanRequest):
     """
     require_data()
 
-    catalogue = build_exercise_catalogue(req.available_equipment, req.goal, req.experience)
+    catalogue = build_exercise_catalogue(req.available_equipment, req.goal, req.experience, req.exercise_type)
 
     if catalogue["total"] == 0:
-        catalogue = build_exercise_catalogue([], req.goal, req.experience)
+        catalogue = build_exercise_catalogue([], req.goal, req.experience, req.exercise_type)
         logger.warning(
             f"No exercises for equipment={req.available_equipment}. "
             "Fell back to bodyweight + cardio only."
