@@ -14,7 +14,7 @@ from typing import Optional
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
@@ -111,7 +111,6 @@ VOLUME_BY_HOURS: dict[float, tuple[int, int]] = {
     3.0: (10, 12),
 }
 
-# Split muscle-group assignments
 SPLIT_FOCUS: dict[str, list[str]] = {
     "push_pull_legs": ["chest,shoulders,triceps", "back,biceps", "legs,glutes",
                        "chest,shoulders,triceps", "back,biceps", "legs,glutes", "rest"],
@@ -211,14 +210,6 @@ def filter_exercises(
     exercise_type: Optional[str] = None,
     muscle:        Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Priority: exercise_type > goal > equipment
-
-    exercise_type == "cardio"   → only cardio rows (equipment irrelevant)
-    exercise_type == "strength" → only strength rows that match available_equipment;
-                                  bodyweight used as fallback when no equipment match
-    exercise_type == None       → cardio + strength (combined); strength filtered by equipment
-    """
     require_data()
 
     norm_equip = {e.lower().strip() for e in available_equipment}
@@ -228,19 +219,15 @@ def filter_exercises(
     is_equipped   = ex_df["equipment_db_key"].isin(norm_equip)
 
     if et == "cardio":
-        # Cardio also respects equipment — only cardio exercises whose equipment is
-        # available (or bodyweight/no-equipment cardio)
         is_cardio = ex_df["type"] == "cardio"
         if norm_equip:
             result = ex_df[is_cardio & (is_bodyweight | is_equipped)].copy()
             if result.empty:
-                # fallback: bodyweight cardio only
                 result = ex_df[is_cardio & is_bodyweight].copy()
         else:
             result = ex_df[is_cardio & is_bodyweight].copy()
 
     elif et == "strength":
-        # Strength must match available equipment; bodyweight-only fallback
         is_strength = ex_df["type"] == "strength"
         matched = ex_df[is_strength & is_equipped].copy()
         if matched.empty:
@@ -250,7 +237,6 @@ def filter_exercises(
             result = pd.concat([matched, bw_strength]).drop_duplicates("exercise_id")
 
     else:
-        # Combined — cardio filtered by equipment, strength filtered by equipment
         is_cardio   = ex_df["type"] == "cardio"
         is_strength = ex_df["type"] == "strength"
         if norm_equip:
@@ -314,25 +300,23 @@ def build_exercise_catalogue(
     return {
         "cardio":        cardio_list,
         "strength":      strength_list,
-        "exercise_type": exercise_type,   # propagate so generate_plan can use it
+        "exercise_type": exercise_type,
         "total":         len(df_filtered),
     }
 
 
-# ─── EXERCISE SCORING (NutriForge-style weighted selection) ───────────────────
+# ─── EXERCISE SCORING ─────────────────────────────────────────────────────────
 def _score_exercise(ex: dict, goal: str, experience: str, focus_muscles: list[str]) -> float:
     score = 1.0
 
-    # Goal alignment — dominates selection
     goal_tags = ex.get("goal_tags") or []
     if goal in goal_tags:
         score += 3.0
     elif "all" in goal_tags:
         score += 0.5
     else:
-        score -= 0.5  # penalise exercises not matching this goal
+        score -= 0.5
 
-    # Muscle focus — exact match preferred, partial match secondary
     ex_muscle = (ex.get("muscle") or "").lower()
     exact_match = any(m == ex_muscle for m in focus_muscles if m and m != "rest")
     partial_match = (not exact_match) and any(m and m in ex_muscle for m in focus_muscles if m != "rest")
@@ -341,7 +325,6 @@ def _score_exercise(ex: dict, goal: str, experience: str, focus_muscles: list[st
     elif partial_match:
         score += 1.0
 
-    # Difficulty preference
     diff_bonus = {
         "beginner":     {"beginner": 1.0, "intermediate": 0.3, "advanced": 0.0},
         "intermediate": {"beginner": 0.5, "intermediate": 1.0, "advanced": 0.5},
@@ -350,7 +333,6 @@ def _score_exercise(ex: dict, goal: str, experience: str, focus_muscles: list[st
     ex_diff = (ex.get("difficulty") or "beginner").lower()
     score += diff_bonus.get(experience, {}).get(ex_diff, 0.5)
 
-    # Calorie burn bonus (normalised)
     cal = ex.get("cal_per_set") or 0
     score += min(cal / 50.0, 1.0)
 
@@ -373,7 +355,6 @@ def _day_focus_muscles(split: str, day_index: int) -> list[str]:
     return [m.strip().lower() for m in focus_str.split(",")]
 
 
-# Day-type for combined mode cycling
 _COMBINED_DAY_CYCLE = ["cardio", "strength", "mixed", "cardio", "strength", "mixed", "rest"]
 
 
@@ -385,15 +366,8 @@ def _pick_exercises(
     target: int,
     injuries: str,
     used_names: set,
-    day_type: Optional[str] = None,   # "cardio" | "strength" | "mixed" | None
+    day_type: Optional[str] = None,
 ) -> list[dict]:
-    """
-    day_type controls which pool to draw from:
-      "cardio"   → only cardio pool
-      "strength" → only strength pool
-      "mixed"    → both pools, interleaved
-      None       → respects GOAL_PRIORITY (legacy behaviour)
-    """
     injury_keywords = [w.strip().lower() for w in (injuries or "").split(",") if w.strip()]
 
     if day_type == "cardio":
@@ -401,7 +375,6 @@ def _pick_exercises(
     elif day_type == "strength":
         pool = list(catalogue.get("strength", []))
     elif day_type == "mixed":
-        # 50/50 split: score + pick strength and cardio independently then combine
         s_pool = list(catalogue.get("strength", []))
         c_pool = list(catalogue.get("cardio", []))
         s_count = target // 2
@@ -427,13 +400,11 @@ def _pick_exercises(
             if e["name"] not in seen_mix:
                 picked_c.append(e); seen_mix.add(e["name"])
 
-        # interleave: strength, cardio, strength, cardio …
         pool = []
         for pair in zip(picked_s, picked_c):
             pool.extend(pair)
         pool.extend(picked_s[len(picked_c):])
         pool.extend(picked_c[len(picked_s):])
-        # return early — already selected
         used_names.update(e["name"] for e in pool)
         return pool
     else:
@@ -442,20 +413,14 @@ def _pick_exercises(
         for t in goal_types:
             pool.extend(catalogue.get(t, []))
 
-    # Filter injured muscles
     if injury_keywords:
         pool = [
             e for e in pool
             if not any(kw in (e.get("muscle") or "").lower() for kw in injury_keywords)
         ]
 
-    # Score — goal + exact muscle match dominate
     scored = [(e, _score_exercise(e, goal, experience, focus_muscles)) for e in pool]
-
-    # Penalise recently used
     scored = [(e, s * (0.3 if e["name"] in used_names else 1.0)) for e, s in scored]
-
-    # Sort descending with small shuffle to prevent identical consecutive plans
     scored.sort(key=lambda x: x[1] + random.uniform(0, 0.15), reverse=True)
 
     selected = []
@@ -485,22 +450,18 @@ def generate_plan(req: ExercisePlanRequest, catalogue: dict) -> dict:
     vol_min, vol_max = volume_range(req.gym_hours)
     target    = (vol_min + vol_max) // 2
     split     = _resolve_split(req)
-    et        = (req.exercise_type or "").lower().strip()   # "cardio" | "strength" | ""
-    is_combined = not et  # no exercise_type = combined mode
+    et        = (req.exercise_type or "").lower().strip()
+    is_combined = not et
 
     schedule   = []
     used_names: set = set()
-    active_day_count = 0  # counts only gym days for cycle indexing
+    active_day_count = 0
 
     for i, (day, short) in enumerate(zip(DAYS, DAYS_SHORT)):
         is_active = i < req.gym_days
         focus_muscles = _day_focus_muscles(split, i)
 
         if is_active:
-            # Determine day_type:
-            # - cardio only → always "cardio"
-            # - strength only → always "strength"
-            # - combined → cycle: cardio / strength / mixed
             if et == "cardio":
                 day_type    = "cardio"
                 focus_label = "Cardio"
@@ -508,7 +469,6 @@ def generate_plan(req: ExercisePlanRequest, catalogue: dict) -> dict:
                 day_type    = "strength"
                 focus_label = " & ".join(m.title() for m in focus_muscles if m not in ("rest",))
             else:
-                # Combined: cycle through cardio → strength → mixed
                 cycle_pos   = active_day_count % 3
                 day_type    = ["cardio", "strength", "mixed"][cycle_pos]
                 focus_label = {
@@ -591,9 +551,15 @@ def root():
             "/exercises/muscles",
             "/exercises/equipment-keys",
             "/health",
+            "/ping",
             "/docs",
         ],
     }
+
+
+@app.get("/ping", tags=["Health"])
+def ping():
+    return PlainTextResponse("OK")
 
 
 @app.get("/health", tags=["Health"])
